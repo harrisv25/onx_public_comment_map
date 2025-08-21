@@ -1,0 +1,7 @@
+requests>=2.32,<3
+beautifulsoup4>=4.12,<5
+lxml>=4.9,<6
+pandas>=2.2,<3
+python-dateutil>=2.9,<3
+rapidfuzz>=3.9,<4
+folium>=0.16,<1
