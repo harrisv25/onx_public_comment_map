@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data
+/data/raw/
+/data/interim/
+/data/standardized/*.gpkg
+/data/standardized/*.parquet
+
+# OS/Editors
+.DS_Store
+.idea/
+.vscode/
