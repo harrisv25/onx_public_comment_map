@@ -119,6 +119,20 @@ Projects are symbolized by status:
 
 ---
 
+## Known Issues
+
+- **BLM scraper limitations**  
+  The BLM scraper was implemented first and has a more minimal schema.  
+  As a result, it lacks some datapoints that the USFS scraper captures, such as **project name** and **detailed notes**.  
+  Future work should align schemas so both sources provide equivalent fields.
+
+- **USFS SOPA PDF parsing**  
+  The USFS scraper pulls from SOPA PDFs, which list **all projects within a forest’s administrative boundary**.  
+  Current parsing does not always handle **multiple project delineations** correctly, occasionally merging or truncating details.  
+  This can reduce clarity for projects with complex or overlapping comment notices.
+
+---
+
 ## Author
 **Vance Harris**  
 [Portfolio](https://vanceharris.com) · [GitHub](https://github.com/harrisv25) · [LinkedIn](https://www.linkedin.com/in/vanceharris)
