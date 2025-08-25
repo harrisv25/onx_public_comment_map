@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>Public Comment Opportunities Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="version" content="v6"> <!-- bump this to force Pages cache refresh -->
+  <meta name="version" content="v7">
 
   <!-- Mapbox GL JS -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
@@ -15,35 +15,29 @@
     #map { width: 100%; height: 100%; }
     .mapboxgl-popup { max-width: 320px; }
     .mapboxgl-popup-content { font: 12px/1.4 'Helvetica Neue', Arial, Helvetica, sans-serif; }
+
     .legend, .filters {
       position: absolute; left: 20px;
       background: white; border-radius: 6px; padding: 8px 10px; font-size: 12px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 2;
     }
     .legend { bottom: 20px; }
     .filters { top: 20px; display: flex; gap: 6px; flex-wrap: wrap; }
     .legend span { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: middle; }
     .filters button {
-      border: 1px solid #ccc;
-      background: #f9f9f9;
-      padding: 4px 6px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
+      border: 1px solid #ccc; background: #f9f9f9;
+      padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px;
     }
-    .filters button.active {
-      background: #ddd;
-      font-weight: 600;
-    }
+    .filters button.active { background: #ddd; font-weight: 600; }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <!-- 🔽 this container must exist for buttons to appear -->
   <div class="filters"></div>
   <div class="legend"></div>
 
   <script>
-    // ✅ Your real public token (safe for GitHub Pages)
     mapboxgl.accessToken = "pk.eyJ1IjoiaGFycmlzdjI1IiwiYSI6ImNtN2JkZWdsdTBkbHoyaW9jN2lpeXlvemMifQ.3fqaKeVOa8lm4e2WJdl-Mg";
     console.log("[token prefix LIVE]", mapboxgl.accessToken.slice(0, 24) + "…");
 
@@ -68,7 +62,7 @@
         return isNaN(d.getTime()) ? null : d;
       };
 
-      // Status rules
+      // No "Closed" bucket; past end_date => "Recently Closed"
       const getStatus = (startStr, endStr) => {
         const start = parseDate(startStr);
         const end = parseDate(endStr);
@@ -103,16 +97,13 @@
           paint: {
             "circle-radius": [
               "match", ["get", "status"],
-              "Active", 7,
-              "Upcoming", 6,
-              "Recently Closed", 5,
-              5
+              "Active", 7, "Upcoming", 6, "Recently Closed", 5, 5
             ],
             "circle-color": [
               "match", ["get", "status"],
-              "Active", "#ef4444",          // red
-              "Upcoming", "#06b6d4",        // cyan
-              "Recently Closed", "#f59e0b", // amber
+              "Active", "#ef4444",
+              "Upcoming", "#06b6d4",
+              "Recently Closed", "#f59e0b",
               "Unknown", "#a3a3a3",
               "#a3a3a3"
             ],
@@ -120,16 +111,14 @@
             "circle-stroke-width": 1,
             "circle-opacity": [
               "match", ["get", "status"],
-              "Unknown", 0.5,
-              0.9
+              "Unknown", 0.5, 0.9
             ]
           }
         });
 
         // Popups
         map.on("click", "opps-layer", (e) => {
-          const f = e.features?.[0];
-          if (!f) return;
+          const f = e.features?.[0]; if (!f) return;
           const p = f.properties || {};
           const html = `
             <strong>${p.project_name || "(unnamed)"}</strong><br>
@@ -139,10 +128,7 @@
             <b>End:</b> ${p.end_date || "?"}<br>
             <div style="margin-top:6px;">${(p.notes || "").slice(0, 400)}</div>
           `;
-          new mapboxgl.Popup({ offset: 12 })
-            .setLngLat(e.lngLat)
-            .setHTML(html)
-            .addTo(map);
+          new mapboxgl.Popup({ offset: 12 }).setLngLat(e.lngLat).setHTML(html).addTo(map);
         });
 
         map.on("mouseenter", "opps-layer", () => (map.getCanvas().style.cursor = "pointer"));
@@ -169,9 +155,9 @@
           <div><span style="background:#a3a3a3;"></span>Unknown</div>
         `;
 
-        // Filters
+        // 🔽 Filters UI
         const categories = ["Active", "Upcoming", "Recently Closed", "Unknown"];
-        const activeFilters = new Set(categories);
+        const activeFilters = new Set(categories); // all on by default
         const filtersDiv = document.querySelector(".filters");
 
         categories.forEach(cat => {
@@ -193,7 +179,7 @@
 
         function updateFilter() {
           if (activeFilters.size === 0) {
-            map.setFilter("opps-layer", ["==", "status", "__none__"]);
+            map.setFilter("opps-layer", ["==", ["get", "status"], "__none__"]);
           } else {
             map.setFilter("opps-layer", ["in", ["get", "status"], ["literal", Array.from(activeFilters)]]);
           }
