@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>Public Comment Opportunities Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="version" content="v6"> <!-- bump this to force Pages cache refresh -->
 
   <!-- Mapbox GL JS -->
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
@@ -14,21 +15,37 @@
     #map { width: 100%; height: 100%; }
     .mapboxgl-popup { max-width: 320px; }
     .mapboxgl-popup-content { font: 12px/1.4 'Helvetica Neue', Arial, Helvetica, sans-serif; }
-    .legend {
-      position: absolute; bottom: 20px; left: 20px;
+    .legend, .filters {
+      position: absolute; left: 20px;
       background: white; border-radius: 6px; padding: 8px 10px; font-size: 12px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1;
     }
+    .legend { bottom: 20px; }
+    .filters { top: 20px; display: flex; gap: 6px; flex-wrap: wrap; }
     .legend span { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: middle; }
+    .filters button {
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .filters button.active {
+      background: #ddd;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  <div class="filters"></div>
   <div class="legend"></div>
 
   <script>
-    // ✅ Your real public Mapbox token (safe to publish)
+    // ✅ Your real public token (safe for GitHub Pages)
     mapboxgl.accessToken = "pk.eyJ1IjoiaGFycmlzdjI1IiwiYSI6ImNtN2JkZWdsdTBkbHoyaW9jN2lpeXlvemMifQ.3fqaKeVOa8lm4e2WJdl-Mg";
+    console.log("[token prefix LIVE]", mapboxgl.accessToken.slice(0, 24) + "…");
 
     const map = new mapboxgl.Map({
       container: "map",
@@ -43,8 +60,7 @@
     const DATA_URL = "data/final_opportunities.geojson";
 
     map.on("load", async () => {
-      // ---- helpers
-      const today = new Date(); // local time ok
+      const today = new Date();
 
       const parseDate = (s) => {
         if (!s || typeof s !== "string") return null;
@@ -52,21 +68,19 @@
         return isNaN(d.getTime()) ? null : d;
       };
 
-      // Status rules (no "Closed"; any past end date => "Recently Closed")
+      // Status rules
       const getStatus = (startStr, endStr) => {
         const start = parseDate(startStr);
         const end = parseDate(endStr);
-
         if (start && end) {
           if (today >= start && today <= end) return "Active";
           if (today < start) return "Upcoming";
-          if (today > end) return "Recently Closed"; // no window, always recently closed
+          if (today > end) return "Recently Closed";
         }
         if (start && !end) {
           if (today < start) return "Upcoming";
-          if (today >= start) return "Active"; // open-ended
+          if (today >= start) return "Active";
         }
-        // missing/invalid dates or no logic hit
         return "Unknown";
       };
 
@@ -75,21 +89,9 @@
         if (!res.ok) throw new Error(`Failed to fetch ${DATA_URL} (${res.status})`);
         const data = await res.json();
 
-        // annotate features (even if your preprocessing added status, this enforces your rule)
         data.features = (data.features || []).map((f) => {
           const p = f.properties || {};
-          const status = getStatus(p.start_date, p.end_date);
-          const start = parseDate(p.start_date);
-          const end = parseDate(p.end_date);
-          return {
-            ...f,
-            properties: {
-              ...p,
-              status,
-              start_iso: start ? start.toISOString().slice(0,10) : null,
-              end_iso: end ? end.toISOString().slice(0,10) : null,
-            }
-          };
+          return { ...f, properties: { ...p, status: getStatus(p.start_date, p.end_date) } };
         });
 
         map.addSource("opps", { type: "geojson", data });
@@ -104,14 +106,14 @@
               "Active", 7,
               "Upcoming", 6,
               "Recently Closed", 5,
-              /* Unknown */ 5
+              5
             ],
             "circle-color": [
               "match", ["get", "status"],
               "Active", "#ef4444",          // red
               "Upcoming", "#06b6d4",        // cyan
               "Recently Closed", "#f59e0b", // amber
-              "Unknown", "#a3a3a3",         // gray-500
+              "Unknown", "#a3a3a3",
               "#a3a3a3"
             ],
             "circle-stroke-color": "#111",
@@ -133,8 +135,8 @@
             <strong>${p.project_name || "(unnamed)"}</strong><br>
             <em>${p.source || ""}</em><br>
             <b>Status:</b> ${p.status}<br>
-            <b>Start:</b> ${p.start_iso || p.start_date || "?"}<br>
-            <b>End:</b> ${p.end_iso || p.end_date || "?"}<br>
+            <b>Start:</b> ${p.start_date || "?"}<br>
+            <b>End:</b> ${p.end_date || "?"}<br>
             <div style="margin-top:6px;">${(p.notes || "").slice(0, 400)}</div>
           `;
           new mapboxgl.Popup({ offset: 12 })
@@ -146,7 +148,7 @@
         map.on("mouseenter", "opps-layer", () => (map.getCanvas().style.cursor = "pointer"));
         map.on("mouseleave", "opps-layer", () => (map.getCanvas().style.cursor = ""));
 
-        // Fit to points
+        // Fit bounds
         const coords = data.features
           .map(f => f?.geometry?.type === "Point" ? f.geometry.coordinates : null)
           .filter(Boolean);
@@ -156,21 +158,47 @@
             new mapboxgl.LngLatBounds(coords[0], coords[0])
           );
           map.fitBounds(bounds, { padding: 40 });
-        } else {
-          console.warn("No point features found; leaving default view.");
         }
 
-        // Legend (no "Closed")
-        const legend = document.querySelector(".legend");
-        if (legend) {
-          legend.innerHTML = `
-            <div style="font-weight:600;margin-bottom:4px;">Comment Status</div>
-            <div><span style="background:#ef4444;"></span>Active</div>
-            <div><span style="background:#06b6d4;"></span>Upcoming</div>
-            <div><span style="background:#f59e0b;"></span>Recently Closed</div>
-            <div><span style="background:#a3a3a3;"></span>Unknown</div>
-          `;
+        // Legend
+        document.querySelector(".legend").innerHTML = `
+          <div style="font-weight:600;margin-bottom:4px;">Comment Status</div>
+          <div><span style="background:#ef4444;"></span>Active</div>
+          <div><span style="background:#06b6d4;"></span>Upcoming</div>
+          <div><span style="background:#f59e0b;"></span>Recently Closed</div>
+          <div><span style="background:#a3a3a3;"></span>Unknown</div>
+        `;
+
+        // Filters
+        const categories = ["Active", "Upcoming", "Recently Closed", "Unknown"];
+        const activeFilters = new Set(categories);
+        const filtersDiv = document.querySelector(".filters");
+
+        categories.forEach(cat => {
+          const btn = document.createElement("button");
+          btn.textContent = cat;
+          btn.classList.add("active");
+          btn.onclick = () => {
+            if (activeFilters.has(cat)) {
+              activeFilters.delete(cat);
+              btn.classList.remove("active");
+            } else {
+              activeFilters.add(cat);
+              btn.classList.add("active");
+            }
+            updateFilter();
+          };
+          filtersDiv.appendChild(btn);
+        });
+
+        function updateFilter() {
+          if (activeFilters.size === 0) {
+            map.setFilter("opps-layer", ["==", "status", "__none__"]);
+          } else {
+            map.setFilter("opps-layer", ["in", ["get", "status"], ["literal", Array.from(activeFilters)]]);
+          }
         }
+        updateFilter();
       } catch (err) {
         console.error("[Data Load Error]", err);
         alert("Failed to load map data. Check console for details.");
