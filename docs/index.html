@@ -19,23 +19,16 @@
       background: white; border-radius: 6px; padding: 8px 10px; font-size: 12px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1;
     }
-    .legend span {
-      display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: middle;
-    }
-    .blm { background: #06b6d4; }
-    .usfs { background: #22c55e; }
+    .legend span { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: middle; }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <div class="legend">
-    <div><span class="blm"></span>BLM</div>
-    <div><span class="usfs"></span>USFS</div>
-  </div>
+  <div class="legend"></div>
 
   <script>
-    // 🔑 IMPORTANT: replace with your real public token that starts with "pk."
-    mapboxgl.accessToken = "pk.REPLACE_ME_WITH_YOUR_PUBLIC_TOKEN";
+    // ✅ Your real public Mapbox token (safe to publish)
+    mapboxgl.accessToken = "pk.eyJ1IjoiaGFycmlzdjI1IiwiYSI6ImNtN2JkZWdsdTBkbHoyaW9jN2lpeXlvemMifQ.3fqaKeVOa8lm4e2WJdl-Mg";
 
     const map = new mapboxgl.Map({
       container: "map",
@@ -45,26 +38,59 @@
     });
 
     map.addControl(new mapboxgl.NavigationControl());
+    map.on("error", (e) => console.error("[Mapbox GL Error]", e?.error || e));
 
-    // If index.html is in /docs, then /docs/data/... is correct:
     const DATA_URL = "data/final_opportunities.geojson";
 
-    // Helpful: log map load errors (e.g., token issues)
-    map.on("error", (e) => {
-      console.error("[Mapbox GL Error]", e && e.error ? e.error : e);
-    });
-
     map.on("load", async () => {
+      // ---- helpers
+      const today = new Date(); // local time ok
+
+      const parseDate = (s) => {
+        if (!s || typeof s !== "string") return null;
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
+      // Status rules (no "Closed"; any past end date => "Recently Closed")
+      const getStatus = (startStr, endStr) => {
+        const start = parseDate(startStr);
+        const end = parseDate(endStr);
+
+        if (start && end) {
+          if (today >= start && today <= end) return "Active";
+          if (today < start) return "Upcoming";
+          if (today > end) return "Recently Closed"; // no window, always recently closed
+        }
+        if (start && !end) {
+          if (today < start) return "Upcoming";
+          if (today >= start) return "Active"; // open-ended
+        }
+        // missing/invalid dates or no logic hit
+        return "Unknown";
+      };
+
       try {
         const res = await fetch(DATA_URL, { cache: "no-cache" });
-        if (!res.ok) {
-          throw new Error(`Failed to fetch ${DATA_URL} (${res.status})`);
-        }
+        if (!res.ok) throw new Error(`Failed to fetch ${DATA_URL} (${res.status})`);
         const data = await res.json();
 
-        if (!data || !Array.isArray(data.features)) {
-          throw new Error("GeoJSON loaded but has no 'features' array.");
-        }
+        // annotate features (even if your preprocessing added status, this enforces your rule)
+        data.features = (data.features || []).map((f) => {
+          const p = f.properties || {};
+          const status = getStatus(p.start_date, p.end_date);
+          const start = parseDate(p.start_date);
+          const end = parseDate(p.end_date);
+          return {
+            ...f,
+            properties: {
+              ...p,
+              status,
+              start_iso: start ? start.toISOString().slice(0,10) : null,
+              end_iso: end ? end.toISOString().slice(0,10) : null,
+            }
+          };
+        });
 
         map.addSource("opps", { type: "geojson", data });
 
@@ -73,28 +99,42 @@
           type: "circle",
           source: "opps",
           paint: {
-            "circle-radius": 6,
-            "circle-color": [
-              "match",
-              ["get", "source"],
-              "BLM", "#06b6d4",
-              "USFS", "#22c55e",
-              /* other */ "#aaa"
+            "circle-radius": [
+              "match", ["get", "status"],
+              "Active", 7,
+              "Upcoming", 6,
+              "Recently Closed", 5,
+              /* Unknown */ 5
             ],
-            "circle-stroke-color": "#000",
-            "circle-stroke-width": 1
+            "circle-color": [
+              "match", ["get", "status"],
+              "Active", "#ef4444",          // red
+              "Upcoming", "#06b6d4",        // cyan
+              "Recently Closed", "#f59e0b", // amber
+              "Unknown", "#a3a3a3",         // gray-500
+              "#a3a3a3"
+            ],
+            "circle-stroke-color": "#111",
+            "circle-stroke-width": 1,
+            "circle-opacity": [
+              "match", ["get", "status"],
+              "Unknown", 0.5,
+              0.9
+            ]
           }
         });
 
+        // Popups
         map.on("click", "opps-layer", (e) => {
-          const f = e.features && e.features[0];
+          const f = e.features?.[0];
           if (!f) return;
           const p = f.properties || {};
           const html = `
             <strong>${p.project_name || "(unnamed)"}</strong><br>
             <em>${p.source || ""}</em><br>
-            Start: ${p.start_date || "?"}<br>
-            End: ${p.end_date || "?"}<br>
+            <b>Status:</b> ${p.status}<br>
+            <b>Start:</b> ${p.start_iso || p.start_date || "?"}<br>
+            <b>End:</b> ${p.end_iso || p.end_date || "?"}<br>
             <div style="margin-top:6px;">${(p.notes || "").slice(0, 400)}</div>
           `;
           new mapboxgl.Popup({ offset: 12 })
@@ -106,20 +146,34 @@
         map.on("mouseenter", "opps-layer", () => (map.getCanvas().style.cursor = "pointer"));
         map.on("mouseleave", "opps-layer", () => (map.getCanvas().style.cursor = ""));
 
-        // Safe fitBounds if we have at least one Point
+        // Fit to points
         const coords = data.features
-          .map(f => f && f.geometry && f.geometry.type === "Point" ? f.geometry.coordinates : null)
+          .map(f => f?.geometry?.type === "Point" ? f.geometry.coordinates : null)
           .filter(Boolean);
-
-        if (coords.length > 0) {
-          const bounds = coords.reduce((b, c) => b.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
+        if (coords.length) {
+          const bounds = coords.reduce(
+            (b, c) => b.extend(c),
+            new mapboxgl.LngLatBounds(coords[0], coords[0])
+          );
           map.fitBounds(bounds, { padding: 40 });
         } else {
           console.warn("No point features found; leaving default view.");
         }
+
+        // Legend (no "Closed")
+        const legend = document.querySelector(".legend");
+        if (legend) {
+          legend.innerHTML = `
+            <div style="font-weight:600;margin-bottom:4px;">Comment Status</div>
+            <div><span style="background:#ef4444;"></span>Active</div>
+            <div><span style="background:#06b6d4;"></span>Upcoming</div>
+            <div><span style="background:#f59e0b;"></span>Recently Closed</div>
+            <div><span style="background:#a3a3a3;"></span>Unknown</div>
+          `;
+        }
       } catch (err) {
         console.error("[Data Load Error]", err);
-        alert("Failed to load map data. Check the console for details.");
+        alert("Failed to load map data. Check console for details.");
       }
     });
   </script>
