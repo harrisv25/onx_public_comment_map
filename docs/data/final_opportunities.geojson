@@ -1,0 +1,175 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -104.51769371738601,
+          40.87865001936584
+        ]
+      },
+      "properties": {
+        "project_name": "2037273",
+        "source": "BLM",
+        "start_date": "2025-07-24",
+        "end_date": "2025-07-24",
+        "notes": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -108.15532995404777,
+          38.10771076633322
+        ]
+      },
+      "properties": {
+        "project_name": "South Uncompahgre Hazardous Fuels and Ecological ResiliencyEA",
+        "source": "USFS",
+        "start_date": "2025-11-01",
+        "end_date": "2026-09-01",
+        "notes": "South Uncompahgre Hazardous Fuels and Ecological Resiliency EA *NEW LISTING* - Wildlife, Fish, Rare plants - Forest products - Vegetation management (other than forest products) - Fuels management - Climate Change Adaptation In Progress: Comment Period Public Notice 06/11/2025 Expected:09/2026 10/2026 Jonathan Tucker 9705731876 jonathan.tucker@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -108.15532995404777,
+          38.10771076633322
+        ]
+      },
+      "properties": {
+        "project_name": "Telluride Mountain Club Trail Proposal 2023EA",
+        "source": "USFS",
+        "start_date": "2025-05-01",
+        "end_date": "2025-06-01",
+        "notes": "Telluride Mountain Club Trail Proposal 2023 EA - Recreation management In Progress: Comment Period Public Notice 03/05/2025 Expected:06/2025 06/2025 Krystina Smith 530-233-8829 krystina.smith@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -108.15532995404777,
+          38.10771076633322
+        ]
+      },
+      "properties": {
+        "project_name": "Telluride Ski Resort ImprovementsEA",
+        "source": "USFS",
+        "start_date": "2026-05-01",
+        "end_date": "2026-06-01",
+        "notes": "Telluride Ski Resort Improvements EA *NEW LISTING* - Special use management In Progress: Comment Period Public Notice 04/30/2025 Expected:05/2026 06/2026 Scott Spielman 970-327-4261 scott.spielman@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -105.60959547576165,
+          40.679993775532694
+        ]
+      },
+      "properties": {
+        "project_name": "Greenman SalvageCE",
+        "source": "USFS",
+        "start_date": "2023-09-01",
+        "end_date": "2023-10-01",
+        "notes": "Greenman Salvage CE - Forest products In Progress: Comment Period Public Notice 06/30/2023 Expected:09/2023 10/2023 Katie Musser 541-899-3800 katie.musser@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -105.92924877311961,
+          40.020607061065874
+        ]
+      },
+      "properties": {
+        "project_name": "Winter Park Resort Projects 2025 EAEA",
+        "source": "USFS",
+        "start_date": "2024-07-01",
+        "end_date": "2025-01-01",
+        "notes": "Winter Park Resort Projects 2025 EA EA - Recreation management - Special use management In Progress: Scoping Start 05/07/2024 Est. Comment Period Public Notice 01/2025 Expected:09/2025 09/2025 Matthew Loscalzo 720-908-1213 Matthew.Loscalzo@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -106.2049108796112,
+          38.81686359763341
+        ]
+      },
+      "properties": {
+        "project_name": "Dispersed Camping Management, Leadville and Salida Ranger DistrictsEA",
+        "source": "USFS",
+        "start_date": "2025-09-01",
+        "end_date": "",
+        "notes": "Dispersed Camping Management, Leadville and Salida Ranger Districts EA *UPDATED* - Recreation management - Watershed management In Progress: Comment Period Public Notice 02/16/2023 Expected:09/2025 09/2025 Deborah Kill (719) 269-8702 deborah.kill@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -105.22184906557474,
+          37.90519692093333
+        ]
+      },
+      "properties": {
+        "project_name": "Locke Park Land ExchangeEA",
+        "source": "USFS",
+        "start_date": "2023-08-01",
+        "end_date": "2025-06-01",
+        "notes": "Locke Park Land Exchange EA - Land ownership management - Land acquisition In Progress: Scoping Start 06/08/2023 Est. Comment Period Public Notice 06/2025 Expected:10/2025 10/2025 Sean Hines 719-530-3974 sean.hines@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -84.45492929928318,
+          36.73826013383297
+        ]
+      },
+      "properties": {
+        "project_name": "Jellico Vegetation Management ProjectEA",
+        "source": "USFS",
+        "start_date": "2025-09-01",
+        "end_date": "2025-10-01",
+        "notes": "Jellico Vegetation Management Project EA *UPDATED* - Forest products - Vegetation management (other than forest products) In Progress: Comment Period Public Notice 04/24/2024 Expected:09/2025 10/2025 John Hull 606-376-5323 x105 john.hull@usda.gov"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -84.45492929928318,
+          36.73826013383297
+        ]
+      },
+      "properties": {
+        "project_name": "Stearns Ruffed Grouse Habitat ManagementEA",
+        "source": "USFS",
+        "start_date": "2025-06-01",
+        "end_date": "2025-10-01",
+        "notes": "Stearns Ruffed Grouse Habitat Management EA - Wildlife, Fish, Rare plants - Forest products - Vegetation management (other than forest products) In Progress: Scoping Start 09/18/2024 Est. Comment Period Public Notice 06/2025 Expected:10/2025 01/2026 Kathryn Fitzsimmons 606-376-5323 x125 kathryn.fitzsimmons@usda.gov"
+      }
+    }
+  ]
+}

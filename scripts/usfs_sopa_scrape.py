@@ -1,234 +1,215 @@
-#!/usr/bin/env python3
-"""
-USFS SOPA scraper (Colorado-focused).
-
-What it does
-------------
-- Option A (--auto-co): discovers ALL Colorado National Forest/Grassland SOPA
-  listing pages from the official state index and scrapes each.
-- Option B (--sopa Forest=URL ...): scrape one or more specific SOPA listing URLs.
-- Parses each unit's main table and extracts:
-    title, link, free-text, and up to two dates from the row text.
-- Emits a CSV (one row per project) in the shared schema used by the pipeline.
-
-Example
--------
-python scripts/usfs_sopa_scrape.py --state CO \
-  --auto-co \
-  -o data/interim/usfs.csv
-
-or, manual selection:
-
-python scripts/usfs_sopa_scrape.py --state CO \
-  --sopa "ArapahoRoosevelt=https://www.fs.usda.gov/sopa/forest-level.php?110210" \
-         "GMUG=https://www.fs.usda.gov/sopa/forest-level.php?110206" \
-  -o data/interim/usfs.csv
-"""
-from __future__ import annotations
-
-import argparse
-import csv
+import os
 import re
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
-from typing import List, Optional, Tuple
-from urllib.parse import urljoin
-
+import csv
+import time
 import requests
+import tempfile
+from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
-from dateutil import parser as dparse
+from pathlib import Path
+from PyPDF2 import PdfReader
+import argparse
 
-# ----------------------------- Constants -------------------------------------
+FORESTS_CO = [
+    ("Arapaho and Roosevelt NFs & Pawnee NG", "110202"),
+    ("Grand Mesa, Uncompahgre and Gunnison NFs", "110204"),
+    ("Medicine Bow-Routt NFs", "110206"),
+    ("Pike and San Isabel NFs & Comanche and Cimarron NGs", "110208"),
+    ("Rio Grande NF", "110209"),
+    ("San Juan NF", "110210"),
+    ("White River NF", "110212"),
+    ("Cimarron National Grassland", "110701"),
+    ("Manti-La Sal NF", "110504"),
+    ("Comanche National Grassland", "110802"),
+    ("Pawnee National Grassland", "110902"),
+]
 
-# Official USFS SOPA state index for Colorado.
-STATE_CO_URL = "https://www.fs.usda.gov/sopa/state-level.php?co="
+SOPA_HTML = "https://www.fs.usda.gov/sopa/components/reports/sopa-{forest_id}-2025-07.html"
+SOPA_PDF = "https://www.fs.usda.gov/sopa/components/reports/sopa-{forest_id}-2025-07.pdf"
 
-# Month-name date tokens like "Aug 20, 2025"
-DATE_ANY_RE = re.compile(
-    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s*\d{4}",
-    re.IGNORECASE,
-)
+def extract_date_range(text):
+    date_regex = r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}"
+    short_regex = r"\b(?:0[1-9]|1[0-2])/\d{4}\b"
 
+    long_dates = re.findall(date_regex, text)
+    short_dates = re.findall(short_regex, text)
 
-# ----------------------------- Data Types ------------------------------------
+    parsed_dates = []
+    today = datetime.today().date()
 
-@dataclass
-class RowResult:
-    project_id: str
-    agency: str
-    title: str
-    description: str
-    office_or_unit: str
-    comment_start_date: Optional[str]
-    comment_end_date: Optional[str]
-    source_url: str
-    state: str
-    geometry_type: str
-    geometry: str
-    geom_source: str
-    scrape_confidence: float
-    last_checked_utc: str
-
-
-# ----------------------------- Helpers ---------------------------------------
-
-def parse_dates_from_text(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Extract up to two dates from free text.
-    - If one date: interpret as an 'end' date (common "Comments due <date>").
-    - If two or more: earliest = start, latest = end.
-    """
-    full_matches = [m.group(0) for m in DATE_ANY_RE.finditer(text or "")]
-    parsed = []
-    for s in full_matches:
+    for d in long_dates:
         try:
-            parsed.append(dparse.parse(s, fuzzy=True))
+            parsed = datetime.strptime(d, "%B %d, %Y").date()
+            parsed_dates.append(parsed)
         except Exception:
-            # ignore unparseable tokens
-            pass
-
-    if not parsed:
-        return None, None
-    if len(parsed) == 1:
-        return None, parsed[0].date().isoformat()
-
-    parsed.sort()
-    return parsed[0].date().isoformat(), parsed[-1].date().isoformat()
-
-
-def discover_colorado_sopa_units() -> List[Tuple[str, str]]:
-    """
-    Parse the Colorado SOPA state page and return (label, url) tuples
-    for every Forest/Grassland unit listed there.
-    """
-    r = requests.get(STATE_CO_URL, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "lxml")
-
-    units: List[Tuple[str, str]] = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "forest-level.php?" in href:
-            url = urljoin(STATE_CO_URL, href)
-            label = a.get_text(strip=True) or "USFS Unit (CO)"
-            units.append((label, url))
-
-    # de-dup (some pages can repeat links)
-    seen = set()
-    deduped: List[Tuple[str, str]] = []
-    for label, url in units:
-        key = (label, url)
-        if key not in seen:
-            deduped.append((label, url))
-            seen.add(key)
-    return deduped
-
-
-def scrape_sopa_listing(url: str, state: str, office_label: str) -> List[RowResult]:
-    """
-    Scrape a single SOPA unit listing page (usually per Forest/Grassland).
-    Returns a list of RowResult (one per project row found).
-    """
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    soup = BeautifulSoup(r.text, "lxml")
-
-    # Heuristic: the first <table> usually contains the listing.
-    table = soup.find("table")
-    if not table:
-        return []
-
-    results: List[RowResult] = []
-    for tr in table.select("tr")[1:]:  # skip header row
-        text = tr.get_text(" ", strip=True)
-        if not text:
             continue
 
-        a = tr.find("a")
-        title = a.get_text(strip=True) if a else "USFS Project"
-        href = a.get("href") if a else url
-
-        start, end = parse_dates_from_text(text)
-
-        # Build a pseudo-stable project_id:
-        # Prefer a suffix from the link target when present; else hash title.
-        if a and a.get("href"):
-            tail = a.get("href").rstrip("/").split("/")[-1]
-            project_id = f"USFS-{tail[-12:]}"
-        else:
-            project_id = f"USFS-{abs(hash(title)) % (10**10)}"
-
-        confidence = 0.6 if (start or end) else 0.4
-
-        results.append(RowResult(
-            project_id=project_id,
-            agency="USFS",
-            title=title,
-            description=text[:1000],
-            office_or_unit=office_label,   
-            comment_start_date=start,
-            comment_end_date=end,
-            source_url=href,
-            state=state,
-            geometry_type="",
-            geometry="",
-            geom_source="",
-            scrape_confidence=confidence,
-            last_checked_utc=datetime.now(timezone.utc).isoformat(),
-        ))
-
-    return results
-
-
-# ----------------------------- CLI / Main ------------------------------------
-
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--state", default="CO", help="Two-letter state code (default: CO)")
-    ap.add_argument("-o", "--out", required=True, help="Output CSV path")
-    ap.add_argument(
-        "--sopa",
-        nargs="+",
-        help="Manual SOPA sources as pairs of ForestLabel=URL (e.g., 'WhiteRiver=https://...'). "
-             "Can be combined with --auto-co.",
-    )
-    ap.add_argument(
-        "--auto-co",
-        action="store_true",
-        help="Discover all Colorado SOPA Forest/Grassland unit pages automatically.",
-    )
-    args = ap.parse_args()
-
-    pairs: List[Tuple[str, str]] = []
-
-    if args.auto_co:
-        pairs.extend(discover_colorado_sopa_units())
-
-    if args.sopa:
-        for pair in args.sopa:
-            if "=" not in pair:
-                raise SystemExit(f"--sopa must be ForestLabel=URL, got: {pair}")
-            label, url = pair.split("=", 1)
-            pairs.append((label, url))
-
-    if not pairs:
-        raise SystemExit("No SOPA sources provided. Use --auto-co or --sopa Forest=URL ...")
-
-    all_rows: List[RowResult] = []
-    for label, url in pairs:
+    for d in short_dates:
         try:
-            all_rows.extend(scrape_sopa_listing(url, args.state, office_label=label))
-        except Exception as exc:
-            # be resilient: capture which unit failed, continue others
-            print(f"[warn] Failed to scrape {label} ({url}): {exc}")
+            parsed = datetime.strptime(d, "%m/%Y").date().replace(day=1)
+            parsed_dates.append(parsed)
+        except Exception:
+            continue
 
-    fieldnames = list(RowResult.__annotations__.keys())
-    with open(args.out, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        for r in all_rows:
-            w.writerow(asdict(r))
+    parsed_dates = sorted(set(parsed_dates))
 
+    comment_start = comment_end = expected_start = expected_end = None
+
+    if "Comment Period Public Notice" in text:
+        notice_match = re.search(date_regex, text)
+        if notice_match:
+            try:
+                expected_start = datetime.strptime(notice_match.group(), "%B %d, %Y").date()
+                expected_end = expected_start + timedelta(days=30)
+            except:
+                pass
+
+    if parsed_dates:
+        if len(parsed_dates) == 1:
+            if parsed_dates[0] < today:
+                comment_end = parsed_dates[0]
+            else:
+                comment_start = parsed_dates[0]
+        elif len(parsed_dates) >= 2:
+            comment_start = parsed_dates[0]
+            comment_end = parsed_dates[1]
+
+    start_date = comment_start or expected_start or comment_end or expected_end
+
+    return (
+        start_date.isoformat() if start_date else None,
+        comment_start.isoformat() if comment_start else None,
+        comment_end.isoformat() if comment_end else None,
+        expected_start.isoformat() if expected_start else None,
+        expected_end.isoformat() if expected_end else None
+    )
+
+def parse_html_report(forest_id, debug=False):
+    url = SOPA_HTML.format(forest_id=forest_id)
+    try:
+        r = requests.get(url)
+        if "Schedule of Proposed Actions" not in r.text:
+            print(f"[WARN] No HTML SOPA report found for {forest_id}")
+            return []
+    except Exception as e:
+        print(f"[ERROR] Request failed for {url}: {e}")
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    projects = []
+    for row in soup.select("tr"):
+        cells = row.find_all("td")
+        if not cells or len(cells) < 2:
+            continue
+
+        text = row.get_text(separator=" ", strip=True)
+        if debug:
+            print(f"[DEBUG] HTML row text: {text.lower()}")
+
+        if "comment period public notice" in text.lower():
+            start, c_start, c_end, expected_start, expected_end = extract_date_range(text)
+            href = row.find("a")
+            project_id = None
+            if href and "project=" in href.get("href", ""):
+                m = re.search(r"project=(\d+)", href["href"])
+                project_id = m.group(1) if m else "unknown"
+            name = cells[0].get_text(strip=True) if cells else "unknown"
+
+            projects.append({
+                "project_id": project_id or "unknown",
+                "name": name,
+                "state": "Colorado",
+                "latitude": None,
+                "longitude": None,
+                "start_date": start,
+                "comment_start": c_start,
+                "comment_end": c_end,
+                "expected_comment_start": expected_start,
+                "expected_comment_end": expected_end,
+                "confidence": 0.7,
+                "notes": text,
+                "url": url
+            })
+    return projects
+
+def download_pdf(forest_id):
+    url = SOPA_PDF.format(forest_id=forest_id)
+    tmpdir = Path(tempfile.gettempdir())
+    pdf_path = tmpdir / f"sopa_{forest_id}.pdf"
+    try:
+        r = requests.get(url)
+        if r.status_code != 200 or b"%PDF" not in r.content[:1024]:
+            print(f"[WARN] No PDF SOPA report found for {forest_id}")
+            return None
+        with open(pdf_path, "wb") as f:
+            f.write(r.content)
+        return pdf_path
+    except Exception as e:
+        print(f"[ERROR] Failed to download PDF for {forest_id}: {e}")
+        return None
+
+def parse_pdf_report(forest_id, pdf_path, debug=False):
+    projects = []
+    try:
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"{pdf_path} does not exist")
+
+        reader = PdfReader(str(pdf_path))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+        if "public comment" in text.lower():
+            start, c_start, c_end, expected_start, expected_end = extract_date_range(text)
+            snippet = text[text.lower().find("public comment"):][:500]
+            projects.append({
+                "project_id": "unknown",
+                "name": "unknown",
+                "state": "Colorado",
+                "latitude": None,
+                "longitude": None,
+                "start_date": start,
+                "comment_start": c_start,
+                "comment_end": c_end,
+                "expected_comment_start": expected_start,
+                "expected_comment_end": expected_end,
+                "confidence": 0.6,
+                "notes": snippet,
+                "url": str(pdf_path)
+            })
+    except Exception as e:
+        print(f"[ERROR] PDF parse failed for {forest_id}: {e}")
+    return projects
+
+def run_scraper(debug_html=False):
+    all_records = []
+    for name, forest_id in FORESTS_CO:
+        print(f"[INFO] Scraping forest: {name}")
+        html_records = parse_html_report(forest_id, debug=debug_html)
+        all_records.extend(html_records)
+        time.sleep(1)
+
+        pdf_path = download_pdf(forest_id)
+        if pdf_path:
+            pdf_records = parse_pdf_report(forest_id, pdf_path, debug=debug_html)
+            all_records.extend(pdf_records)
+    return all_records
+
+def save_to_csv(records, path="data/interim/usfs_public_comment.csv"):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "project_id", "name", "state", "latitude", "longitude",
+            "start_date", "comment_start", "comment_end",
+            "expected_comment_start", "expected_comment_end",
+            "confidence", "notes", "url"
+        ])
+        writer.writeheader()
+        writer.writerows(records)
+    print(f"[INFO] Saved {len(records)} records to {path}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug-html", action="store_true", help="Print raw HTML or PDF content for debugging")
+    args = parser.parse_args()
+
+    records = run_scraper(debug_html=args.debug_html)
+    save_to_csv(records)

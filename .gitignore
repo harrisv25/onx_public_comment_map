@@ -1,16 +1,39 @@
+# -----------------
 # Python
+# -----------------
 .venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
 
-# Data
+# -----------------
+# Data (large / generated)
+# -----------------
 /data/raw/
 /data/interim/
+/data/processed/
+/data/standardized/
 /data/standardized/*.gpkg
 /data/standardized/*.parquet
+*.tmp
+*.temp
+*.log
 
-# OS/Editors
+# -----------------
+# OS / Editors
+# -----------------
 .DS_Store
 .idea/
 .vscode/
+Thumbs.db
+
+# -----------------
+# Test / Coverage
+# -----------------
+.pytest_cache/
+.coverage
+htmlcov/

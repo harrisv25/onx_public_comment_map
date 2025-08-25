@@ -1,53 +1,60 @@
-.ONESHELL:
+# -------------------------------
+# Config
+# -------------------------------
+PY ?= python
 
-# Use the venv's Python explicitly (Windows-friendly)
-PY := ./.venv/Scripts/python.exe
+DATA_INTERIM   := data/interim
+DATA_PROCESSED := data/processed
+DATA_STD       := data/standardized
+DOCS_DATA      := docs/data
 
-# Default: build data + web bundle
-all: setup data map
+BLM_CSV        := $(DATA_INTERIM)/blm_public_comment.csv
+USFS_CSV       := $(DATA_INTERIM)/usfs_public_comment.csv
+USFS_ENRICHED  := $(DATA_PROCESSED)/usfs_public_comment_with_geom.csv
 
-# ---- ENV SETUP ----
-setup:
-	@if [ ! -f ".venv/Scripts/python.exe" ]; then \
-		py -m venv .venv || python -m venv .venv; \
-	fi
-	$(PY) -m pip install -r requirements.txt
-	@if [ -f requirements-dev.txt ]; then \
-		$(PY) -m pip install -r requirements-dev.txt; \
-	fi
-	@mkdir -p data/raw data/interim data/standardized webmap
+FINAL_CSV      := $(DATA_STD)/final_opportunities.csv
+FINAL_GEOJSON  := $(DATA_STD)/final_opportunities.geojson
+PUBLISH_GEOJSON := $(DOCS_DATA)/final_opportunities.geojson
 
-# ---- DATA PIPELINE ----
+# Default: run whole pipeline to published final GeoJSON
+.PHONY: all
+all: publish
 
-# BLM: discover ALL relevant Colorado projects (no manual IDs)
-# (Next step: I'll patch blm_scrape.py to implement --discover-co and optional --open-only.)
-blm:
-	$(PY) scripts/blm_scrape.py --state CO --discover-co \
-	  -o data/interim/blm.csv
+# 1) Run BLM scraper → interim CSV
+$(BLM_CSV):
+	@mkdir -p $(DATA_INTERIM)
+	$(PY) scripts/blm_scrape.py
 
-# USFS: auto-discover ALL Colorado Forest/Grassland SOPA pages
-usfs:
-	$(PY) scripts/usfs_sopa_scrape.py --state CO --auto-co \
-	  -o data/interim/usfs.csv
+# 2) Run USFS scraper → interim CSV
+$(USFS_CSV):
+	@mkdir -p $(DATA_INTERIM)
+	$(PY) scripts/usfs_sopa_scrape.py
 
-# Merge + compute status -> GeoJSON + CSV
-standardize: blm usfs
-	$(PY) scripts/standardize.py data/interim/*.csv \
-	  -o data/standardized/opportunities.geojson \
-	  --csv data/standardized/opportunities.csv
+# 3) Enrich USFS CSV with ranger district geoms
+$(USFS_ENRICHED): $(USFS_CSV)
+	@mkdir -p $(DATA_PROCESSED)
+	$(PY) scripts/enrich_with_district_geoms.py --csv-out $(USFS_ENRICHED)
 
-data: standardize
+# 4) Standardize + finalize into final_opportunities.* (drops intermediates)
+$(FINAL_CSV) $(FINAL_GEOJSON): $(BLM_CSV) $(USFS_ENRICHED)
+	@mkdir -p $(DATA_STD)
+	$(PY) scripts/standardize.py \
+		$(BLM_CSV) $(USFS_ENRICHED) \
+		--csv $(FINAL_CSV) \
+		--geojson $(FINAL_GEOJSON)
 
-# ---- WEB MAP ----
-map: data
-	$(PY) scripts/build_map_assets.py \
-	  --in data/standardized/opportunities.geojson \
-	  --out webmap/data.json
-	@echo "✅ Map assets built -> open webmap/index.html"
+# 5) Copy final GeoJSON into docs/ for GitHub Pages
+$(PUBLISH_GEOJSON): $(FINAL_GEOJSON)
+	@mkdir -p $(DOCS_DATA)
+	cp $(FINAL_GEOJSON) $(PUBLISH_GEOJSON)
 
-# ---- QA / DEV ----
-test:
-	$(PY) -m pytest -q
+.PHONY: publish
+publish: $(FINAL_CSV) $(FINAL_GEOJSON) $(PUBLISH_GEOJSON)
+	@echo "[OK] Final outputs ready:"
+	@echo "  - $(FINAL_CSV)"
+	@echo "  - $(FINAL_GEOJSON)"
+	@echo "  - Published web copy → $(PUBLISH_GEOJSON)"
 
-serve: map
-	$(PY) -m http.server 8000
+.PHONY: clean
+clean:
+	@rm -f $(FINAL_CSV) $(FINAL_GEOJSON) $(PUBLISH_GEOJSON)
